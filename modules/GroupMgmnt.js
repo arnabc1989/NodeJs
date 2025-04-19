@@ -15,6 +15,8 @@ const groupSchema = new mongoose.Schema({
     members: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     pendingRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    bannedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    leaveTimestamps: [{ userId: mongoose.Schema.Types.ObjectId, timestamp: Date }]
 });
 
 const Group = mongoose.model("Group", groupSchema);
@@ -26,6 +28,7 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model("User", userSchema);
+const Leave = mongoose.model('Leave', leaveSchema);
 
 // Create Group
 app.post("/groups/create", async (req, res) => {
@@ -125,6 +128,128 @@ app.post("/groups/:groupId/reject/:userId", async (req, res) => {
     await group.save();
 
     res.json({ message: "User's request was rejected!" });
+});
+
+// Ban a User from a Group
+app.post("/groups/:groupId/ban/:userId", async (req, res) => {
+    const { groupId, userId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    if (!group.bannedUsers.includes(userId)) {
+        group.bannedUsers.push(userId);
+        group.members = group.members.filter(member => member.toString() !== userId);
+        await group.save();
+    }
+
+    res.json({ message: "User has been banned from the group!" });
+});
+
+// Submit Rejoin Request (Banished User)
+app.post("/groups/:groupId/request/:userId", async (req, res) => {
+    const { groupId, userId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    if (group.bannedUsers.includes(userId)) {
+        return res.status(403).json({ error: "User is banned; owner approval required to rejoin" });
+    }
+
+    if (!group.pendingRequests.includes(userId)) {
+        group.pendingRequests.push(userId);
+        await group.save();
+    }
+
+    res.json({ message: "Join request submitted!" });
+});
+
+// Enforce 48-Hour Cooldown After Leaving Private Group
+app.post("/groups/:groupId/leave/:userId", async (req, res) => {
+    const { groupId, userId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    // Store leave timestamp for cooldown enforcement
+    if (group.type === "private") {
+        //await storeLeave(userId);
+        group.leaveTimestamps.push({ userId, timestamp: new Date() });
+    }
+
+    group.members = group.members.filter(member => member.toString() !== userId);
+    await group.save();
+
+    res.json({ message: "User left the group!" });
+});
+
+// Verify Cooldown Before Allowing Rejoin Request
+app.post("/groups/:groupId/request-private/:userId", async (req, res) => {
+    const { groupId, userId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    if (group.type !== "private") {
+        return res.status(400).json({ error: "Cooldown only applies to private groups" });
+    }
+
+    // Check if user left within the last 48 hours
+    const leaveRecord = group.leaveTimestamps.find(record => record.userId.toString() === userId);
+    if (leaveRecord) {
+        const timeDiff = (new Date() - leaveRecord.timestamp) / (1000 * 60 * 60); // Convert to hours
+        if (timeDiff < 48) {
+            return res.status(403).json({ error: `Cooldown period active. Please wait ${(48 - timeDiff).toFixed(1)} more hours.` });
+        }
+    }
+
+    if (!group.pendingRequests.includes(userId)) {
+        group.pendingRequests.push(userId);
+        await group.save();
+    }
+
+    res.json({ message: "Join request submitted!" });
+});
+
+// Transfer Owner Role
+app.post("/groups/:groupId/transfer-owner/:ownerId/:newOwnerId", async (req, res) => {
+    const { groupId, ownerId, newOwnerId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    if (group.owner.toString() !== ownerId) {
+        return res.status(403).json({ error: "Only the current owner can transfer ownership" });
+    }
+
+    if (!group.members.includes(newOwnerId)) {
+        return res.status(400).json({ error: "New owner must be a group member" });
+    }
+
+    group.owner = newOwnerId;
+    await group.save();
+
+    res.json({ message: "Ownership transferred successfully!" });
+});
+
+// Delete Group (Only Allowed If Owner Is the Sole Member)
+app.delete("/groups/:groupId/delete/:ownerId", async (req, res) => {
+    const { groupId, ownerId } = req.params;
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    if (group.owner.toString() !== ownerId) {
+        return res.status(403).json({ error: "Only the owner can delete the group" });
+    }
+
+    if (group.members.length > 1) {
+        return res.status(403).json({ error: "Cannot delete group with other members present" });
+    }
+
+    await Group.findByIdAndDelete(groupId);
+    res.json({ message: "Group deleted successfully!" });
 });
 
 // Start Server

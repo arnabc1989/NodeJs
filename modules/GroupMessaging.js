@@ -36,6 +36,7 @@ const messageSchema = new mongoose.Schema({
     groupId: { type: mongoose.Schema.Types.ObjectId, ref: "Group", required: true },
     encryptedText: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
+    delivered: { type: Boolean, default: false }
 });
 
 const Message = mongoose.model("Message", messageSchema);
@@ -53,7 +54,10 @@ app.post("/messages/send", async (req, res) => {
     const message = new Message({ senderId, groupId, encryptedText });
     await message.save();
 
-    res.status(201).json({ message: "Message sent securely!" });
+    // Add to simulated queue for delayed delivery
+    messageQueue.push(message);
+
+    res.status(201).json({ message: "Message sent securely!",timestamp: new Date().toISOString() });
 });
 
 // Retrieve Messages and Decrypt
@@ -71,7 +75,13 @@ app.get("/messages/:groupId", async (req, res) => {
         timestamp: msg.timestamp
     }));
 
+    // Simulated delayed message delivery
+    const newMessages = messageQueue.filter(msg => msg.groupId.toString() === groupId);
+    newMessages.forEach(msg => (msg.delivered = true));
+
     res.json(decryptedMessages);
+    // Remove delivered messages from queue
+    messageQueue.splice(0, newMessages.length);
 });
 
 // Start Server

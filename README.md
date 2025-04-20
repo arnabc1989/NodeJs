@@ -55,6 +55,48 @@ ENCRYPTION_KEY=1234567890123456
 bash
 node server.js
 
+
+**Setup and Run Instructions**
+
+Clone the repository: git clone [https://github.com/your-repo/secure-messaging-app.git](https://github.com/your-repo/secure-messaging-app.git`)
+Install dependencies: npm install
+Set environment variables:
+MONGO_URI: MongoDB connection string (e.g., mongodb+srv://username:password@cluster0.namb0am.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0)
+JWT_SECRET_KEY: Secret key for JSON Web Tokens (e.g., your-secret-key)
+ENCRYPTION_KEY: AES-128 encryption key (e.g., 1234567890123456)
+Start the server: node index.js
+API Documentation
+
+**Authentication Endpoints**
+POST /register
+Request Body: { email: string, password: string }
+Response: { message: string }
+POST /login
+Request Body: { email: string, password: string }
+Response: { token: string }
+Group Management Endpoints
+POST /groups/create
+Request Body: { name: string, type: string, maxMembers: number, ownerId: string }
+Response: { message: string, group: object }
+GET /groups/:groupId/requests
+Response: { pendingRequests: array }
+POST /groups/:groupId/join/:userId
+Response: { message: string }
+POST /groups/:groupId/leave/:userId
+Response: { message: string }
+POST /groups/:groupId/approve/:userId
+Response: { message: string }
+POST /groups/:groupId/reject/:userId
+Response: { message: string }
+POST /groups/:groupId/ban/:userId
+Response: { message: string }
+Messaging Endpoints
+POST /messages/send
+Request Body: { senderId: string, groupId: string, text: string }
+Response: { message: string }
+GET /messages/:groupId
+Response: { messages: array }
+
 API Endpoints
 
 🔹 Authentication
@@ -75,3 +117,5 @@ POST	/groups/:groupId/transfer-owner/:ownerId/:newOwnerId	Transfer owner role
 Method	Endpoint	Description
 POST	/messages/send	Send an encrypted message
 GET	/messages/:groupId	Retrieve & decrypt messages
+
+

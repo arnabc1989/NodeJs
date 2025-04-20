@@ -1,13 +1,30 @@
-require("dotenv").config();
+// Import required modules
 const express = require("express");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
+const logger = require('morgan'); // logging middleware
 
 const app = express();
 app.use(express.json());
+const messageQueue = []; // In-memory queue
+
+// Set up logging
+app.use(logger('dev')); // log requests and responses in development mode
 
 const mongoURI = 'mongodb+srv://arnabchakraborty21:uGl51wFgp0Tjv7bp@cluster0.namb0am.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true });
+
+// Define a logging function
+function log(message) {
+    console.log(`[${new Date().toISOString()}] ${message}`);
+  }
+  
+  // Define a debug logging function
+  function debug(message) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[${new Date().toISOString()}] DEBUG: ${message}`);
+    }
+  }
 
 // AES-128 Encryption/Decryption Helpers
 const ENCRYPTION_KEY = Buffer.from("1234567890123456", "utf-8");
@@ -39,6 +56,13 @@ const messageSchema = new mongoose.Schema({
     delivered: { type: Boolean, default: false }
 });
 
+const groupSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    members: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }]
+  });
+
+const Group = mongoose.model("Group", groupSchema);
 const Message = mongoose.model("Message", messageSchema);
 
 // Send Encrypted Message
@@ -53,12 +77,20 @@ app.post("/messages/send", async (req, res) => {
 
     const message = new Message({ senderId, groupId, encryptedText });
     await message.save();
-
+    log(`Message saved: ${message._id}`);
     // Add to simulated queue for delayed delivery
     messageQueue.push(message);
 
     res.status(201).json({ message: "Message sent securely!",timestamp: new Date().toISOString() });
 });
+
+// Process messages (Simulated worker)
+setInterval(() => {
+    if (messageQueue.length > 0) {
+      const processedMessage = messageQueue.shift();
+      console.log(`Processed Message:`, processedMessage);
+    }
+  }, 1000); // Simulates periodic processing
 
 // Retrieve Messages and Decrypt
 app.get("/messages/:groupId", async (req, res) => {
@@ -68,7 +100,7 @@ app.get("/messages/:groupId", async (req, res) => {
         return res.status(400).json({ error: "Invalid group ID format" });
     }
 
-    const messages = await Message.find({ groupId }).populate("senderId", "name");
+    const messages = await Message.find({ groupId });
     const decryptedMessages = messages.map(msg => ({
         sender: msg.senderId.name,
         text: decrypt(msg.encryptedText),

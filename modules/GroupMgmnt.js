@@ -1,11 +1,28 @@
+// Import required modules
 const express = require('express');
 const mongoose = require('mongoose');
+const logger = require('morgan'); // logging middleware
 
 const app = express();
 app.use(express.json());
 
+// Set up logging
+app.use(logger('dev')); // log requests and responses in development mode
+
 const mongoURI = 'mongodb+srv://arnabchakraborty21:uGl51wFgp0Tjv7bp@cluster0.namb0am.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true });
+
+// Define a logging function
+function log(message) {
+    console.log(`[${new Date().toISOString()}] ${message}`);
+  }
+  
+  // Define a debug logging function
+  function debug(message) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[${new Date().toISOString()}] DEBUG: ${message}`);
+    }
+  }
 
 // Group Schema
 const groupSchema = new mongoose.Schema({
@@ -28,7 +45,7 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model("User", userSchema);
-const Leave = mongoose.model('Leave', leaveSchema);
+//const Leave = mongoose.model('Leave', leaveSchema);
 
 // Create Group
 app.post("/groups/create", async (req, res) => {
@@ -37,8 +54,10 @@ app.post("/groups/create", async (req, res) => {
     try {
         const group = new Group({ name, type, maxMembers, owner: ownerId, members: [ownerId] });
         await group.save();
+        log(`Group created: ${group._id}`);
         res.status(201).json({ message: "Group created successfully!", group });
     } catch (error) {
+        log(`Error creating group: ${error.message}`);
         res.status(500).json({ error: error.message });
     }
 });
@@ -91,6 +110,27 @@ app.post("/groups/:groupId/leave/:userId", async (req, res) => {
     await group.save();
 
     res.json({ message: "Left group successfully!" });
+});
+
+// Endpoint for owner to leave the group
+app.post("/leaveGroup", async (req, res) => {
+  const { groupId, userId, newOwnerId } = req.body;
+
+  const group = await Group.findById(groupId);
+  if (!group) return res.status(404).json({ error: "Group not found" });
+
+  if (!group.owner.equals(userId)) {
+    return res.status(403).json({ error: "Owner must transfer ownership before leaving" });
+  }
+
+  if (!newOwnerId || !group.members.includes(newOwnerId)) {
+    return res.status(400).json({ error: "New owner must be specified and a member" });
+  }
+
+  group.owner = newOwnerId;
+  group.members = group.members.filter(member => !member.equals(userId));
+  await group.save();
+  res.json({ message: "Owner transferred and left successfully" });
 });
 
 // Approve Requests (Private Groups)
